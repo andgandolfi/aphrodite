@@ -1,6 +1,7 @@
 /* @flow */
 import prefixAll from 'inline-style-prefixer/static';
 
+import OrderedElements from './ordered-elements';
 import {
     objectToPairs, kebabifyStyleName, recursiveMerge, stringifyValue,
     importantify, flatten
@@ -143,18 +144,20 @@ export const generateCSS = (
     stringHandlers /* : StringHandlers */ = {},
     useImportant /* : boolean */ = true
 ) /* : string */ => {
-    const merged = styleTypes.reduce(recursiveMerge);
+    const merged /* : OrderedElements */ = styleTypes.reduce(
+        recursiveMerge,
+        new OrderedElements());
 
-    const plainDeclarations = {};
+    const plainDeclarations = new OrderedElements();
     let generatedStyles = "";
 
-    Object.keys(merged).forEach(key => {
+    merged.forEach((key, val) => {
         // For each key, see if one of the selector handlers will handle these
         // styles.
         const foundHandler = selectorHandlers.some(handler => {
             const result = handler(key, selector, (newSelector) => {
                 return generateCSS(
-                    newSelector, [merged[key]], selectorHandlers,
+                    newSelector, [val], selectorHandlers,
                     stringHandlers, useImportant);
             });
             if (result != null) {
@@ -167,7 +170,7 @@ export const generateCSS = (
         // If none of the handlers handled it, add it to the list of plain
         // style declarations.
         if (!foundHandler) {
-            plainDeclarations[key] = merged[key];
+            plainDeclarations.set(key, val);
         }
     });
 
@@ -186,13 +189,11 @@ export const generateCSS = (
  * See generateCSSRuleset for usage and documentation of paramater types.
  */
 const runStringHandlers = (
-    declarations /* : SheetDefinition */,
+    declarations /* : OrderedElements */,
     stringHandlers /* : StringHandlers */,
     selectorHandlers /* : SelectorHandler[] */
 ) /* */ => {
-    const result = {};
-
-    Object.keys(declarations).forEach(key => {
+    return declarations.map((key, val) => {
         // If a handler exists for this particular key, let it interpret
         // that value first before continuing
         if (stringHandlers && stringHandlers.hasOwnProperty(key)) {
@@ -201,14 +202,11 @@ const runStringHandlers = (
             // `selectorHandlers` and have them make calls to `generateCSS`
             // themselves. Right now, this is impractical because our string
             // handlers are very specialized and do complex things.
-            result[key] = stringHandlers[key](
-                declarations[key], selectorHandlers);
+            return stringHandlers[key](val, selectorHandlers);
         } else {
-            result[key] = declarations[key];
+            return val;
         }
     });
-
-    return result;
 };
 
 /**
@@ -244,43 +242,35 @@ const runStringHandlers = (
  */
 export const generateCSSRuleset = (
     selector /* : string */,
-    declarations /* : SheetDefinition */,
+    declarations /* : OrderedElements */,
     stringHandlers /* : StringHandlers */,
     useImportant /* : boolean */,
     selectorHandlers /* : SelectorHandler[] */
 ) /* : string */ => {
-    const handledDeclarations = runStringHandlers(
+    const handledDeclarations /* : OrderedElements */ = runStringHandlers(
         declarations, stringHandlers, selectorHandlers);
 
-    const prefixedDeclarations = prefixAll(handledDeclarations);
+    const prefixedDeclarations = prefixAll(handledDeclarations.elements);
 
     const prefixedRules = flatten(
         objectToPairs(prefixedDeclarations).map(([key, value]) => {
             if (Array.isArray(value)) {
                 // inline-style-prefix-all returns an array when there should be
                 // multiple rules, we will flatten to single rules
-
-                const prefixedValues = [];
-                const unprefixedValues = [];
-
-                value.forEach(v => {
-                  if (v.indexOf('-') === 0) {
-                    prefixedValues.push(v);
-                  } else {
-                    unprefixedValues.push(v);
-                  }
-                });
-
-                prefixedValues.sort();
-                unprefixedValues.sort();
-
-                return prefixedValues
-                  .concat(unprefixedValues)
-                  .map(v => [key, v]);
+                return value.map(v => [key, v]);
             }
             return [[key, value]];
         })
     );
+
+    // Sort the prefixed rules according to the order that the keys were
+    // in originally before we prefixed them. Since the new, prefixed version
+    // of the rules aren't in the original list, we sort them to the top.
+    prefixedRules.sort((a, b) => {
+        const aIndex = handledDeclarations.keyOrder.indexOf(a);
+        const bIndex = handledDeclarations.keyOrder.indexOf(b);
+        return aIndex - bIndex;
+    });
 
     const rules = prefixedRules.map(([key, value]) => {
         const stringValue = stringifyValue(key, value);

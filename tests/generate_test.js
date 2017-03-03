@@ -1,12 +1,15 @@
 import {assert} from 'chai';
 
+import OrderedElements from '../src/ordered-elements';
 import {
     generateCSSRuleset, generateCSS, defaultSelectorHandlers
 } from '../src/generate';
 
 describe('generateCSSRuleset', () => {
     const assertCSSRuleset = (selector, declarations, expected) => {
-        const actual = generateCSSRuleset(selector, declarations);
+        const actual = generateCSSRuleset(
+            selector,
+            OrderedElements.from(declarations));
         assert.equal(actual, expected.split('\n').map(x => x.trim()).join(''));
     };
     it('returns a CSS string for a single property', () => {
@@ -153,8 +156,14 @@ describe('generateCSS', () => {
     it('adds browser prefixes', () => {
         assertCSS('.foo', [{
             display: 'flex',
-        }], '.foo{display:-moz-box !important;display:-ms-flexbox !important;display:-webkit-box !important;display:-webkit-flex !important;display:flex !important;}',
-            defaultSelectorHandlers);
+        }], '.foo{' +
+            'display:-webkit-box !important;' +
+            'display:-moz-box !important;' +
+            'display:-ms-flexbox !important;' +
+            'display:-webkit-flex !important;' +
+            'display:flex !important;' +
+        '}',
+        defaultSelectorHandlers);
     });
 
     it('supports other selector handlers', () => {
